@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -1150,8 +1151,12 @@ func (h *OpenAIAPIHandler) collectXAIVideosNative(c *gin.Context, rawJSON []byte
 		resp = buildXAIVideosCreateResponse(resp, rawJSON)
 	} else {
 		videoID := videoIDFromPayload(rawJSON)
+		host, _, _ := net.SplitHostPort(c.Request.Host)
+		if host == "" {
+			host = c.Request.Host
+		}
 		scheme := "http"
-		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		if c.Request.TLS != nil && net.ParseIP(host) == nil {
 			scheme = "https"
 		}
 		videoProxyURL := fmt.Sprintf("%s://%s/v1/videos/%s/content", scheme, c.Request.Host, videoID)

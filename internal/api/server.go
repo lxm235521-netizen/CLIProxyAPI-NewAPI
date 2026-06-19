@@ -440,7 +440,6 @@ func (s *Server) setupRoutes() {
 		v1.POST("/videos/edits", openaiHandlers.XAIVideosEdits)
 		v1.POST("/videos/extensions", openaiHandlers.XAIVideosExtensions)
 		v1.GET("/videos/:request_id", openaiHandlers.XAIVideosRetrieve)
-		v1.GET("/videos/:request_id/content", openaiHandlers.XAIVideosContent)
 		v1.POST("/messages", claudeCodeHandlers.ClaudeMessages)
 		v1.POST("/messages/count_tokens", claudeCodeHandlers.ClaudeCountTokens)
 		v1.GET("/responses", openaiResponsesHandlers.ResponsesWebsocket)
@@ -452,7 +451,6 @@ func (s *Server) setupRoutes() {
 	openaiV1.Use(AuthMiddleware(s.accessManager))
 	{
 		openaiV1.POST("/videos", openaiHandlers.VideosCreate)
-		openaiV1.GET("/videos/:video_id/content", openaiHandlers.VideosContent)
 		openaiV1.GET("/videos/:video_id", openaiHandlers.VideosRetrieve)
 	}
 
@@ -473,6 +471,10 @@ func (s *Server) setupRoutes() {
 		v1beta.POST("/models/*action", geminiHandlers.GeminiHandler)
 		v1beta.GET("/models/*action", s.geminiGetHandler(geminiHandlers))
 	}
+
+	// Video content download endpoints (no auth required)
+	s.engine.GET("/v1/videos/:request_id/content", openaiHandlers.XAIVideosContent)
+	s.engine.GET("/openai/v1/videos/:video_id/content", openaiHandlers.VideosContent)
 
 	// Root endpoint
 	s.engine.GET("/", func(c *gin.Context) {
