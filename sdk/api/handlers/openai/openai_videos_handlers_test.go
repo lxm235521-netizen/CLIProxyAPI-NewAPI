@@ -1,8 +1,10 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -776,4 +778,398 @@ func videosCreateRequestFromFormContext(body string) ([]byte, error) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	return rawJSON, err
+}
+
+func buildXAIVideosNativeFromMultipartContext(t *testing.T, body *bytes.Buffer, contentType string) ([]byte, error) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	var rawJSON []byte
+	var err error
+	router.POST(xaiVideosGenerationsAPI, func(c *gin.Context) {
+		rawJSON, err = buildXAIVideosNativeFromMultipart(c)
+	})
+	req := httptest.NewRequest(http.MethodPost, xaiVideosGenerationsAPI, body)
+	req.Header.Set("Content-Type", contentType)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	return rawJSON, err
+}
+
+func makeMultipartVideoBody(t *testing.T, fields map[string]string, files map[string][]byte) (*bytes.Buffer, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write field %s: %v", key, err)
+		}
+	}
+	for fieldName, content := range files {
+		part, err := writer.CreateFormFile(fieldName, "test.png")
+		if err != nil {
+			t.Fatalf("create form file %s: %v", fieldName, err)
+		}
+		if _, err := part.Write(content); err != nil {
+			t.Fatalf("write file content %s: %v", fieldName, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	return &body, writer.FormDataContentType()
+}
+
+func TestXAIVideosNativeMultipartBasic(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":  "grok-imagine-video",
+		"prompt": "a cat dancing",
+		"size":   "720x1280",
+	}, nil)
+
+	rawJSON, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err != nil {
+		t.Fatalf("buildXAIVideosNativeFromMultipart() error = %v", err)
+	}
+	if got := gjson.GetBytes(rawJSON, "model").String(); got != defaultXAIVideosModel {
+		t.Fatalf("model = %q, want %s", got, defaultXAIVideosModel)
+	}
+	if got := gjson.GetBytes(rawJSON, "prompt").String(); got != "a cat dancing" {
+		t.Fatalf("prompt = %q", got)
+	}
+	if got := gjson.GetBytes(rawJSON, "duration").Int(); got != 4 {
+		t.Fatalf("duration = %d, want 4", got)
+	}
+	if got := gjson.GetBytes(rawJSON, "aspect_ratio").String(); got != "9:16" {
+		t.Fatalf("aspect_ratio = %q, want 9:16", got)
+	}
+	if got := gjson.GetBytes(rawJSON, "resolution").String(); got != "720p" {
+		t.Fatalf("resolution = %q, want 720p", got)
+	}
+}
+
+func TestXAIVideosNativeMultipartCustomSeconds(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":   "grok-imagine-video",
+		"prompt":  "a cat dancing",
+		"seconds": "6",
+	}, nil)
+
+	rawJSON, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err != nil {
+		t.Fatalf("buildXAIVideosNativeFromMultipart() error = %v", err)
+	}
+	if got := gjson.GetBytes(rawJSON, "duration").Int(); got != 6 {
+		t.Fatalf("duration = %d, want 6", got)
+	}
+}
+
+func TestXAIVideosNativeMultipartSizeDerivesAspectRatio(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":  "grok-imagine-video",
+		"prompt": "a cat dancing",
+		"size":   "1280x720",
+	}, nil)
+
+	rawJSON, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err != nil {
+		t.Fatalf("buildXAIVideosNativeFromMultipart() error = %v", err)
+	}
+	if got := gjson.GetBytes(rawJSON, "aspect_ratio").String(); got != "16:9" {
+		t.Fatalf("aspect_ratio = %q, want 16:9", got)
+	}
+}
+
+func TestXAIVideosNativeMultipartExplicitAspectRatio(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":       "grok-imagine-video",
+		"prompt":      "a cat dancing",
+		"size":        "720x1280",
+		"aspect_ratio": "1:1",
+	}, nil)
+
+	rawJSON, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err != nil {
+		t.Fatalf("buildXAIVideosNativeFromMultipart() error = %v", err)
+	}
+	if got := gjson.GetBytes(rawJSON, "aspect_ratio").String(); got != "1:1" {
+		t.Fatalf("aspect_ratio = %q, want 1:1 (explicit override)", got)
+	}
+}
+
+func TestXAIVideosNativeMultipartResolutionName(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":           "grok-imagine-video",
+		"prompt":          "a cat dancing",
+		"size":            "720x1280",
+		"resolution_name": "480p",
+	}, nil)
+
+	rawJSON, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err != nil {
+		t.Fatalf("buildXAIVideosNativeFromMultipart() error = %v", err)
+	}
+	if got := gjson.GetBytes(rawJSON, "resolution").String(); got != "480p" {
+		t.Fatalf("resolution = %q, want 480p", got)
+	}
+}
+
+func TestXAIVideosNativeMultipartInvalidSeconds(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":   "grok-imagine-video",
+		"prompt":  "a cat dancing",
+		"seconds": "abc",
+	}, nil)
+
+	_, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err == nil {
+		t.Fatal("expected error for invalid seconds, got nil")
+	}
+}
+
+func TestXAIVideosNativeJSONBackwardCompatible(t *testing.T) {
+	resetVideoAuthBindingsForTest(t)
+	executor := &videoAuthCaptureExecutor{requestID: "video-json-compat"}
+	handler := newVideoAuthBindingTestHandler(t, executor)
+
+	body := strings.NewReader(`{"model":"grok-imagine-video","prompt":"make a video"}`)
+	resp := performVideosEndpointRequest(t, http.MethodPost, xaiVideosGenerationsAPI, "application/json", body, handler.XAIVideosGenerations)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+}
+
+func TestXAIVideosNativeMultipartModelCanonization(t *testing.T) {
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":  "sora-2",
+		"prompt": "a cat dancing",
+	}, nil)
+
+	rawJSON, err := buildXAIVideosNativeFromMultipartContext(t, body, ct)
+	if err != nil {
+		t.Fatalf("buildXAIVideosNativeFromMultipart() error = %v", err)
+	}
+	if got := gjson.GetBytes(rawJSON, "model").String(); got != defaultXAIVideosModel {
+		t.Fatalf("model = %q, want %s (sora-2 canonized)", got, defaultXAIVideosModel)
+	}
+}
+
+func TestXAIVideosNativeMultipartRejectsUnsupportedModel(t *testing.T) {
+	handler := &OpenAIAPIHandler{}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", "gpt-4"); err != nil {
+		t.Fatalf("write model field: %v", err)
+	}
+	if err := writer.WriteField("prompt", "a cat dancing"); err != nil {
+		t.Fatalf("write prompt field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	resp := performVideosEndpointRequest(t, http.MethodPost, xaiVideosGenerationsAPI, writer.FormDataContentType(), &body, handler.XAIVideosGenerations)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusBadRequest, resp.Body.String())
+	}
+}
+
+func TestXAIVideosNativeCreateResponseFormat(t *testing.T) {
+	resetVideoAuthBindingsForTest(t)
+	executor := &videoAuthCaptureExecutor{requestID: "video-response-format"}
+	handler := newVideoAuthBindingTestHandler(t, executor)
+
+	body := strings.NewReader(`{"model":"grok-imagine-video","prompt":"a cat","seconds":"10","size":"720x1280"}`)
+	resp := performVideosEndpointRequest(t, http.MethodPost, xaiVideosGenerationsAPI, "application/json", body, handler.XAIVideosGenerations)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+
+	payload := resp.Body.Bytes()
+	if got := gjson.GetBytes(payload, "id").String(); got != executor.requestID {
+		t.Fatalf("id = %q, want %s", got, executor.requestID)
+	}
+	if got := gjson.GetBytes(payload, "task_id").String(); got != executor.requestID {
+		t.Fatalf("task_id = %q, want %s", got, executor.requestID)
+	}
+	if got := gjson.GetBytes(payload, "object").String(); got != "video" {
+		t.Fatalf("object = %q, want video", got)
+	}
+	if got := gjson.GetBytes(payload, "seconds").String(); got != "10" {
+		t.Fatalf("seconds = %q, want 10", got)
+	}
+	if got := gjson.GetBytes(payload, "size").String(); got != "720x1280" {
+		t.Fatalf("size = %q, want 720x1280", got)
+	}
+	if got := gjson.GetBytes(payload, "status").String(); got != "completed" {
+		t.Fatalf("status = %q, want completed", got)
+	}
+	if !gjson.GetBytes(payload, "created_at").Exists() {
+		t.Fatal("created_at is missing")
+	}
+}
+
+func TestXAIVideosNativeCreateResponseSecondsFromDuration(t *testing.T) {
+	resetVideoAuthBindingsForTest(t)
+	executor := &videoAuthCaptureExecutor{requestID: "video-duration-fallback"}
+	handler := newVideoAuthBindingTestHandler(t, executor)
+
+	body := strings.NewReader(`{"model":"grok-imagine-video","prompt":"a cat","duration":8}`)
+	resp := performVideosEndpointRequest(t, http.MethodPost, xaiVideosGenerationsAPI, "application/json", body, handler.XAIVideosGenerations)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	if got := gjson.GetBytes(resp.Body.Bytes(), "seconds").String(); got != "8" {
+		t.Fatalf("seconds = %q, want 8 (from duration)", got)
+	}
+}
+
+func TestXAIVideosNativeCreateResponseSizeFromAspectRatio(t *testing.T) {
+	resetVideoAuthBindingsForTest(t)
+	executor := &videoAuthCaptureExecutor{requestID: "video-size-ar"}
+	handler := newVideoAuthBindingTestHandler(t, executor)
+
+	body := strings.NewReader(`{"model":"grok-imagine-video","prompt":"a cat","aspect_ratio":"16:9"}`)
+	resp := performVideosEndpointRequest(t, http.MethodPost, xaiVideosGenerationsAPI, "application/json", body, handler.XAIVideosGenerations)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	if got := gjson.GetBytes(resp.Body.Bytes(), "size").String(); got != "1280x720" {
+		t.Fatalf("size = %q, want 1280x720", got)
+	}
+}
+
+func TestXAIVideosNativeCreateResponseMultipartFormat(t *testing.T) {
+	resetVideoAuthBindingsForTest(t)
+	executor := &videoAuthCaptureExecutor{requestID: "video-multipart-format"}
+	handler := newVideoAuthBindingTestHandler(t, executor)
+
+	body, ct := makeMultipartVideoBody(t, map[string]string{
+		"model":           "grok-imagine-video",
+		"prompt":          "a cat dancing",
+		"size":            "720x1280",
+		"seconds":         "6",
+		"resolution_name": "720p",
+	}, nil)
+
+	resp := performVideosEndpointRequest(t, http.MethodPost, xaiVideosGenerationsAPI, ct, body, handler.XAIVideosGenerations)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	payload := resp.Body.Bytes()
+	if got := gjson.GetBytes(payload, "id").String(); got != executor.requestID {
+		t.Fatalf("id = %q, want %s", got, executor.requestID)
+	}
+	if got := gjson.GetBytes(payload, "task_id").String(); got != executor.requestID {
+		t.Fatalf("task_id = %q, want %s", got, executor.requestID)
+	}
+	if got := gjson.GetBytes(payload, "object").String(); got != "video" {
+		t.Fatalf("object = %q, want video", got)
+	}
+	if got := gjson.GetBytes(payload, "seconds").String(); got != "6" {
+		t.Fatalf("seconds = %q, want 6", got)
+	}
+	if got := gjson.GetBytes(payload, "size").String(); got != "720x1280" {
+		t.Fatalf("size = %q, want 720x1280", got)
+	}
+}
+
+func TestBuildXAIVideosRetrieveResponseInProgress(t *testing.T) {
+	respPayload := []byte(`{"request_id":"vid_123","status":"in_progress","progress":50}`)
+	rawRequest := []byte(`{"request_id":"vid_123"}`)
+
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "http://127.0.0.1:8317/v1/videos/vid_456/content")
+
+	if got := gjson.GetBytes(out, "code").String(); got != "success" {
+		t.Fatalf("code = %q, want success", got)
+	}
+	if got := gjson.GetBytes(out, "data.status").String(); got != "IN_PROGRESS" {
+		t.Fatalf("data.status = %q, want IN_PROGRESS", got)
+	}
+	if got := gjson.GetBytes(out, "data.progress").String(); got != "50%" {
+		t.Fatalf("data.progress = %q, want 50%%", got)
+	}
+	if gjson.GetBytes(out, "data.data").Exists() {
+		t.Fatal("data.data must not exist for IN_PROGRESS")
+	}
+}
+
+func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
+	respPayload := []byte(`{"request_id":"vid_456","model":"grok-imagine-video","status":"completed","progress":100,"video":{"url":"https://vidgen.x.ai/video.mp4"}}`)
+	rawRequest := []byte(`{"request_id":"vid_456"}`)
+
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "")
+
+	if got := gjson.GetBytes(out, "code").String(); got != "success" {
+		t.Fatalf("code = %q, want success", got)
+	}
+	if got := gjson.GetBytes(out, "data.status").String(); got != "SUCCESS" {
+		t.Fatalf("data.status = %q, want SUCCESS", got)
+	}
+	if got := gjson.GetBytes(out, "data.progress").String(); got != "100%" {
+		t.Fatalf("data.progress = %q, want 100%%", got)
+	}
+	if got := gjson.GetBytes(out, "data.data.status").String(); got != "done" {
+		t.Fatalf("data.data.status = %q, want done", got)
+	}
+	if got := gjson.GetBytes(out, "data.data.model").String(); got != "grok-imagine-video" {
+		t.Fatalf("data.data.model = %q", got)
+	}
+	if got := gjson.GetBytes(out, "data.data.video.url").String(); got != "http://127.0.0.1:8317/v1/videos/vid_456/content" {
+		t.Fatalf("data.data.video.url = %q, want .../v1/videos/video-retrieve-format/content", got)
+	}
+}
+
+func TestBuildXAIVideosRetrieveResponseFailed(t *testing.T) {
+	respPayload := []byte(`{"request_id":"vid_789","status":"failed","progress":0}`)
+	rawRequest := []byte(`{"request_id":"vid_789"}`)
+
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "")
+
+	if got := gjson.GetBytes(out, "code").String(); got != "success" {
+		t.Fatalf("code = %q, want success", got)
+	}
+	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILED" {
+		t.Fatalf("data.status = %q, want FAILED", got)
+	}
+	if got := gjson.GetBytes(out, "data.progress").String(); got != "0%" {
+		t.Fatalf("data.progress = %q, want 0%%", got)
+	}
+	if gjson.GetBytes(out, "data.data").Exists() {
+		t.Fatal("data.data must not exist for FAILED")
+	}
+}
+
+func TestXAIVideosRetrieveResponseFormat(t *testing.T) {
+	resetVideoAuthBindingsForTest(t)
+	executor := &videoAuthCaptureExecutor{requestID: "video-retrieve-format"}
+	handler := newVideoAuthBindingTestHandler(t, executor)
+
+	resp := performVideosRouteRequest(t, http.MethodGet, xaiVideosGenerationsAPI+"/:request_id", xaiVideosGenerationsAPI+"/video-retrieve-format", "", nil, handler.XAIVideosRetrieve)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", resp.Code, http.StatusOK, resp.Body.String())
+	}
+	payload := resp.Body.Bytes()
+	if got := gjson.GetBytes(payload, "code").String(); got != "success" {
+		t.Fatalf("code = %q, want success", got)
+	}
+	if got := gjson.GetBytes(payload, "data.status").String(); got != "SUCCESS" {
+		t.Fatalf("data.status = %q, want SUCCESS", got)
+	}
+	if got := gjson.GetBytes(payload, "data.progress").String(); got != "100%" {
+		t.Fatalf("data.progress = %q", got)
+	}
+	if got := gjson.GetBytes(payload, "data.data.status").String(); got != "done" {
+		t.Fatalf("data.data.status = %q, want done", got)
+	}
+	if got := gjson.GetBytes(payload, "data.data.video.url").String(); !strings.HasSuffix(got, "/v1/videos/video-retrieve-format/content") {
+		t.Fatalf("data.data.video.url = %q, want .../v1/videos/video-retrieve-format/content", got)
+	}
 }

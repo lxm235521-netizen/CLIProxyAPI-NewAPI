@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -213,6 +214,10 @@ func readVideosCreateRequest(c *gin.Context) ([]byte, error) {
 }
 
 func readXAIVideosNativeRequest(c *gin.Context) ([]byte, error) {
+	contentType := strings.ToLower(strings.TrimSpace(c.ContentType()))
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		return buildXAIVideosNativeFromMultipart(c)
+	}
 	rawJSON, err := handlers.ReadRequestBody(c)
 	if err != nil {
 		return nil, err
@@ -253,6 +258,86 @@ func firstPostForm(c *gin.Context, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func buildXAIVideosNativeFromMultipart(c *gin.Context) ([]byte, error) {
+	form, err := c.MultipartForm()
+	if err != nil {
+		return nil, fmt.Errorf("parse multipart form: %w", err)
+	}
+
+	model := strings.TrimSpace(c.PostForm("model"))
+	prompt := strings.TrimSpace(c.PostForm("prompt"))
+	size := strings.TrimSpace(c.PostForm("size"))
+	seconds := strings.TrimSpace(c.PostForm("seconds"))
+	aspectRatioInput := strings.TrimSpace(c.PostForm("aspect_ratio"))
+	resolutionInput := strings.TrimSpace(c.PostForm("resolution"))
+	resolutionName := strings.TrimSpace(c.PostForm("resolution_name"))
+
+	_, duration, err := normalizeXAIVideosSeconds(seconds)
+	if err != nil {
+		return nil, err
+	}
+
+	aspectRatio := ""
+	resolution := ""
+	if size != "" {
+		if _, derivedAR, derivedRes, sizeErr := xaiVideosSizeOptions(size); sizeErr == nil {
+			aspectRatio = derivedAR
+			resolution = derivedRes
+		}
+	}
+	if value := xaiVideosAspectRatio(aspectRatioInput, ""); value != "" {
+		aspectRatio = value
+	}
+	if value := xaiVideosResolution(resolutionInput, ""); value != "" {
+		resolution = value
+	} else if value := xaiVideosResolution(resolutionName, ""); value != "" {
+		resolution = value
+	}
+
+	var fileHeaders []*multipart.FileHeader
+	if files := form.File["input_reference[]"]; len(files) > 0 {
+		fileHeaders = files
+	} else if files := form.File["input_reference"]; len(files) > 0 {
+		fileHeaders = files
+	}
+
+	var dataURLs []string
+	for _, fh := range fileHeaders {
+		dataURL, fileErr := multipartFileToDataURL(fh)
+		if fileErr != nil {
+			return nil, fileErr
+		}
+		dataURLs = append(dataURLs, dataURL)
+	}
+
+	if len(dataURLs) > maxXAIVideoReferences {
+		return nil, fmt.Errorf("input_reference supports at most %d files on xAI", maxXAIVideoReferences)
+	}
+	if len(dataURLs) > 1 && duration > 10 {
+		duration = 10
+	}
+
+	videoModel := canonicalXAIVideosModel(model)
+	req := []byte(`{}`)
+	req, _ = sjson.SetBytes(req, "model", videoModel)
+	req, _ = sjson.SetBytes(req, "prompt", prompt)
+	req, _ = sjson.SetRawBytes(req, "duration", []byte(strconv.FormatInt(duration, 10)))
+	if aspectRatio != "" {
+		req, _ = sjson.SetBytes(req, "aspect_ratio", aspectRatio)
+	}
+	if resolution != "" {
+		req, _ = sjson.SetBytes(req, "resolution", resolution)
+	}
+	if len(dataURLs) == 1 {
+		req, _ = sjson.SetBytes(req, "image.url", dataURLs[0])
+	} else {
+		for _, url := range dataURLs {
+			req, _ = sjson.SetBytes(req, "reference_images.-1.url", url)
+		}
+	}
+	return req, nil
 }
 
 func (h *OpenAIAPIHandler) videoAuthBindingTTL() time.Duration {
@@ -505,6 +590,88 @@ func buildVideosCreateAPIResponseFromXAI(payload []byte, meta xaiVideoCreateMeta
 		out, _ = sjson.SetRawBytes(out, "progress", []byte(progress.Raw))
 	}
 	return out, nil
+}
+
+func buildXAIVideosCreateResponse(respPayload []byte, rawRequest []byte) []byte {
+	requestID := strings.TrimSpace(gjson.GetBytes(respPayload, "request_id").String())
+	if requestID == "" {
+		requestID = strings.TrimSpace(gjson.GetBytes(respPayload, "id").String())
+	}
+
+	seconds := strings.TrimSpace(gjson.GetBytes(rawRequest, "seconds").String())
+	if seconds == "" {
+		if dur := gjson.GetBytes(rawRequest, "duration").Int(); dur > 0 {
+			seconds = strconv.FormatInt(dur, 10)
+		}
+	}
+
+	size := strings.TrimSpace(gjson.GetBytes(rawRequest, "size").String())
+	if size == "" {
+		switch strings.TrimSpace(gjson.GetBytes(rawRequest, "aspect_ratio").String()) {
+		case "9:16":
+			size = "720x1280"
+		case "16:9":
+			size = "1280x720"
+		}
+	}
+
+	out := []byte(`{"object":"video","progress":0,"status":"queued"}`)
+	out, _ = sjson.SetBytes(out, "id", requestID)
+	out, _ = sjson.SetBytes(out, "task_id", requestID)
+	if model := strings.TrimSpace(gjson.GetBytes(respPayload, "model").String()); model != "" {
+		out, _ = sjson.SetBytes(out, "model", model)
+	}
+	out, _ = sjson.SetBytes(out, "created_at", time.Now().Unix())
+	if seconds != "" {
+		out, _ = sjson.SetBytes(out, "seconds", seconds)
+	}
+	if size != "" {
+		out, _ = sjson.SetBytes(out, "size", size)
+	}
+	if status := openAIVideoStatus(gjson.GetBytes(respPayload, "status").String()); status != "" {
+		out, _ = sjson.SetBytes(out, "status", status)
+	}
+	if progress := gjson.GetBytes(respPayload, "progress"); progress.Exists() {
+		out, _ = sjson.SetRawBytes(out, "progress", []byte(progress.Raw))
+	}
+	return out
+}
+
+func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, videoProxyURL string) []byte {
+	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(respPayload, "status").String()))
+
+	var responseStatus string
+	switch status {
+	case "completed", "done", "succeeded", "success":
+		responseStatus = "SUCCESS"
+	case "failed", "error", "cancelled", "canceled", "expired":
+		responseStatus = "FAILED"
+	default:
+		responseStatus = "IN_PROGRESS"
+	}
+
+	progressStr := "0%"
+	if progress := gjson.GetBytes(respPayload, "progress"); progress.Exists() {
+		progressStr = strconv.FormatInt(progress.Int(), 10) + "%"
+	}
+
+	out := []byte(`{}`)
+	out, _ = sjson.SetBytes(out, "code", "success")
+	out, _ = sjson.SetBytes(out, "data.status", responseStatus)
+	out, _ = sjson.SetBytes(out, "data.progress", progressStr)
+
+	if responseStatus == "SUCCESS" {
+		inner := []byte(`{}`)
+		inner, _ = sjson.SetBytes(inner, "status", "done")
+		if model := strings.TrimSpace(gjson.GetBytes(respPayload, "model").String()); model != "" {
+			inner, _ = sjson.SetBytes(inner, "model", model)
+		}
+		if videoProxyURL != "" {
+			inner, _ = sjson.SetBytes(inner, "video.url", videoProxyURL)
+		}
+		out, _ = sjson.SetRawBytes(out, "data.data", inner)
+	}
+	return out
 }
 
 func buildVideosFailedAPIResponse(model string, code string, message string) []byte {
@@ -799,6 +966,42 @@ func (h *OpenAIAPIHandler) VideosContent(c *gin.Context) {
 		return
 	}
 
+	h.downloadXAIVideoContent(c, videoID)
+}
+
+func (h *OpenAIAPIHandler) XAIVideosContent(c *gin.Context) {
+	requestID := strings.TrimSpace(c.Param("request_id"))
+	if requestID == "" {
+		requestID = strings.TrimSpace(c.Param("video_id"))
+	}
+	if requestID == "" {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "Invalid request: request_id is required",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	variant := strings.TrimSpace(c.Query("variant"))
+	if variant == "" {
+		variant = "video"
+	}
+	if variant != "video" {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: fmt.Sprintf("Invalid request: variant %q is not available for xAI video downloads", variant),
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	h.downloadXAIVideoContent(c, requestID)
+}
+
+func (h *OpenAIAPIHandler) downloadXAIVideoContent(c *gin.Context, videoID string) {
 	payload := []byte(`{}`)
 	payload, _ = sjson.SetBytes(payload, "request_id", videoID)
 
@@ -944,6 +1147,15 @@ func (h *OpenAIAPIHandler) collectXAIVideosNative(c *gin.Context, rawJSON []byte
 
 	if bindCreatedVideoAuth {
 		h.bindVideoAuthIDFromPayload(resp, selectedAuthID)
+		resp = buildXAIVideosCreateResponse(resp, rawJSON)
+	} else {
+		videoID := videoIDFromPayload(rawJSON)
+		scheme := "http"
+		if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		videoProxyURL := fmt.Sprintf("%s://%s/v1/videos/%s/content", scheme, c.Request.Host, videoID)
+		resp = buildXAIVideosRetrieveResponse(resp, rawJSON, videoProxyURL)
 	}
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 	_, _ = c.Writer.Write(resp)
