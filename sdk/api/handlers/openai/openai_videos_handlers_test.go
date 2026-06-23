@@ -1104,7 +1104,7 @@ func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_456","model":"grok-imagine-video","status":"completed","progress":100,"video":{"url":"https://vidgen.x.ai/video.mp4"}}`)
 	rawRequest := []byte(`{"request_id":"vid_456"}`)
 
-	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "")
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "http://127.0.0.1:8317/v1/videos/vid_456/content")
 
 	if got := gjson.GetBytes(out, "code").String(); got != "success" {
 		t.Fatalf("code = %q, want success", got)
@@ -1112,8 +1112,8 @@ func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
 	if got := gjson.GetBytes(out, "data.status").String(); got != "SUCCESS" {
 		t.Fatalf("data.status = %q, want SUCCESS", got)
 	}
-	if got := gjson.GetBytes(out, "data.progress").String(); got != "100%" {
-		t.Fatalf("data.progress = %q, want 100%%", got)
+	if gjson.GetBytes(out, "data.progress").Exists() {
+		t.Fatal("data.progress must not exist for SUCCESS")
 	}
 	if got := gjson.GetBytes(out, "data.data.status").String(); got != "done" {
 		t.Fatalf("data.data.status = %q, want done", got)
@@ -1122,7 +1122,7 @@ func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
 		t.Fatalf("data.data.model = %q", got)
 	}
 	if got := gjson.GetBytes(out, "data.data.video.url").String(); got != "http://127.0.0.1:8317/v1/videos/vid_456/content" {
-		t.Fatalf("data.data.video.url = %q, want .../v1/videos/video-retrieve-format/content", got)
+		t.Fatalf("data.data.video.url = %q, want proxy URL", got)
 	}
 }
 
@@ -1135,14 +1135,31 @@ func TestBuildXAIVideosRetrieveResponseFailed(t *testing.T) {
 	if got := gjson.GetBytes(out, "code").String(); got != "success" {
 		t.Fatalf("code = %q, want success", got)
 	}
-	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILED" {
-		t.Fatalf("data.status = %q, want FAILED", got)
+	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILURE" {
+		t.Fatalf("data.status = %q, want FAILURE", got)
 	}
-	if got := gjson.GetBytes(out, "data.progress").String(); got != "0%" {
-		t.Fatalf("data.progress = %q, want 0%%", got)
+	if gjson.GetBytes(out, "data.progress").Exists() {
+		t.Fatal("data.progress must not exist for FAILURE")
+	}
+	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频生成失败" {
+		t.Fatalf("data.reason = %q, want 视频生成失败", got)
 	}
 	if gjson.GetBytes(out, "data.data").Exists() {
-		t.Fatal("data.data must not exist for FAILED")
+		t.Fatal("data.data must not exist for FAILURE")
+	}
+}
+
+func TestBuildXAIVideosRetrieveResponseModerationRejected(t *testing.T) {
+	respPayload := []byte(`{"request_id":"vid_mod","status":"failed","error":{"message":"Content safety violation"}}`)
+	rawRequest := []byte(`{"request_id":"vid_mod"}`)
+
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "")
+
+	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILURE" {
+		t.Fatalf("data.status = %q, want FAILURE", got)
+	}
+	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频内容审核不通过" {
+		t.Fatalf("data.reason = %q, want 视频内容审核不通过", got)
 	}
 }
 
@@ -1163,8 +1180,8 @@ func TestXAIVideosRetrieveResponseFormat(t *testing.T) {
 	if got := gjson.GetBytes(payload, "data.status").String(); got != "SUCCESS" {
 		t.Fatalf("data.status = %q, want SUCCESS", got)
 	}
-	if got := gjson.GetBytes(payload, "data.progress").String(); got != "100%" {
-		t.Fatalf("data.progress = %q", got)
+	if gjson.GetBytes(payload, "data.progress").Exists() {
+		t.Fatal("data.progress must not exist for SUCCESS")
 	}
 	if got := gjson.GetBytes(payload, "data.data.status").String(); got != "done" {
 		t.Fatalf("data.data.status = %q, want done", got)

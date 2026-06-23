@@ -646,20 +646,14 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 	case "completed", "done", "succeeded", "success":
 		responseStatus = "SUCCESS"
 	case "failed", "error", "cancelled", "canceled", "expired":
-		responseStatus = "FAILED"
+		responseStatus = "FAILURE"
 	default:
 		responseStatus = "IN_PROGRESS"
-	}
-
-	progressStr := "0%"
-	if progress := gjson.GetBytes(respPayload, "progress"); progress.Exists() {
-		progressStr = strconv.FormatInt(progress.Int(), 10) + "%"
 	}
 
 	out := []byte(`{}`)
 	out, _ = sjson.SetBytes(out, "code", "success")
 	out, _ = sjson.SetBytes(out, "data.status", responseStatus)
-	out, _ = sjson.SetBytes(out, "data.progress", progressStr)
 
 	if responseStatus == "SUCCESS" {
 		inner := []byte(`{}`)
@@ -671,8 +665,33 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 			inner, _ = sjson.SetBytes(inner, "video.url", videoProxyURL)
 		}
 		out, _ = sjson.SetRawBytes(out, "data.data", inner)
+	} else if responseStatus == "FAILURE" {
+		out, _ = sjson.SetBytes(out, "data.reason", videoFailureReason(respPayload))
+	} else {
+		progressStr := "0%"
+		if progress := gjson.GetBytes(respPayload, "progress"); progress.Exists() {
+			progressStr = strconv.FormatInt(progress.Int(), 10) + "%"
+		}
+		out, _ = sjson.SetBytes(out, "data.progress", progressStr)
 	}
+
 	return out
+}
+
+func videoFailureReason(payload []byte) string {
+	errMsg := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.message").String()))
+	if errMsg == "" {
+		errMsg = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error").String()))
+	}
+	if errMsg == "" {
+		errMsg = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "code").String()))
+	}
+	for _, kw := range []string{"safety", "moderation", "review", "policy", "content_policy", "审核", "内容", "违规"} {
+		if strings.Contains(errMsg, kw) {
+			return "视频内容审核不通过"
+		}
+	}
+	return "视频生成失败"
 }
 
 func buildVideosFailedAPIResponse(model string, code string, message string) []byte {
