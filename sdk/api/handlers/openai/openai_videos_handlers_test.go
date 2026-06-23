@@ -1080,6 +1080,26 @@ func TestXAIVideosNativeCreateResponseMultipartFormat(t *testing.T) {
 	}
 }
 
+func TestBuildXAIVideosCreateResponseModerationRejected(t *testing.T) {
+	respPayload := []byte(`{"code":"Client specified an invalid argument","error":"Generated video rejected by content moderation.","usage":{"cost_in_usd_ticks":4260000000}}`)
+	rawRequest := []byte(`{"model":"grok-imagine-video","prompt":"test"}`)
+
+	out := buildXAIVideosCreateResponse(respPayload, rawRequest)
+
+	if got := gjson.GetBytes(out, "code").String(); got != "success" {
+		t.Fatalf("code = %q, want success", got)
+	}
+	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILURE" {
+		t.Fatalf("data.status = %q, want FAILURE", got)
+	}
+	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频内容审核不通过" {
+		t.Fatalf("data.reason = %q, want 视频内容审核不通过", got)
+	}
+	if gjson.GetBytes(out, "object").Exists() {
+		t.Fatal("object must not exist in error response")
+	}
+}
+
 func TestBuildXAIVideosRetrieveResponseInProgress(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_123","status":"in_progress","progress":50}`)
 	rawRequest := []byte(`{"request_id":"vid_123"}`)

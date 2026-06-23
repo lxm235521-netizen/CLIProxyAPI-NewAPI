@@ -599,6 +599,14 @@ func buildXAIVideosCreateResponse(respPayload []byte, rawRequest []byte) []byte 
 		requestID = strings.TrimSpace(gjson.GetBytes(respPayload, "id").String())
 	}
 
+	if requestID == "" && gjson.GetBytes(respPayload, "error").Exists() {
+		out := []byte(`{}`)
+		out, _ = sjson.SetBytes(out, "code", "success")
+		out, _ = sjson.SetBytes(out, "data.status", "FAILURE")
+		out, _ = sjson.SetBytes(out, "data.reason", videoFailureReason(respPayload))
+		return out
+	}
+
 	seconds := strings.TrimSpace(gjson.GetBytes(rawRequest, "seconds").String())
 	if seconds == "" {
 		if dur := gjson.GetBytes(rawRequest, "duration").Int(); dur > 0 {
