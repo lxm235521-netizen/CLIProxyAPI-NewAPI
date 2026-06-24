@@ -445,7 +445,7 @@ func TestWriteVideoContentFromURLUsesPinnedAuthProxy(t *testing.T) {
 
 	base := apihandlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{ProxyURL: "http://global-proxy.example.com:8080"}, manager)
 	handler := NewOpenAIAPIHandler(base)
-	videoAuthBindings.set("video_123", authID, time.Hour)
+	videoAuthBindings.set("video_123", authID, defaultXAIVideosModel, time.Hour)
 
 	gin.SetMode(gin.TestMode)
 	resp := httptest.NewRecorder()
