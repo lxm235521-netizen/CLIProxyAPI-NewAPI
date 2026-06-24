@@ -1160,11 +1160,11 @@ func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
 	if got := gjson.GetBytes(out, "data.data.video.url").String(); got != "http://127.0.0.1:8317/v1/videos/vid_456/content" {
 		t.Fatalf("data.data.video.url = %q, want proxy URL", got)
 	}
-	if got := gjson.GetBytes(out, "data.data.url").String(); got != "http://127.0.0.1:8317/v1/videos/vid_456/content" {
-		t.Fatalf("data.data.url = %q, want proxy URL", got)
+	if got := gjson.GetBytes(out, "data.url").String(); got != "http://127.0.0.1:8317/v1/videos/vid_456/content" {
+		t.Fatalf("data.url = %q, want proxy URL", got)
 	}
-	if got := gjson.GetBytes(out, "data.data.source_url").String(); got != "https://vidgen.x.ai/video.mp4" {
-		t.Fatalf("data.data.source_url = %q, want https://vidgen.x.ai/video.mp4", got)
+	if got := gjson.GetBytes(out, "data.source_url").String(); got != "https://vidgen.x.ai/video.mp4" {
+		t.Fatalf("data.source_url = %q, want https://vidgen.x.ai/video.mp4", got)
 	}
 }
 
@@ -1231,10 +1231,10 @@ func TestXAIVideosRetrieveResponseFormat(t *testing.T) {
 	if got := gjson.GetBytes(payload, "data.data.video.url").String(); !strings.HasSuffix(got, "/v1/videos/video-retrieve-format/content") {
 		t.Fatalf("data.data.video.url = %q, want .../v1/videos/video-retrieve-format/content", got)
 	}
-	if got := gjson.GetBytes(payload, "data.data.url").String(); !strings.HasSuffix(got, "/v1/videos/video-retrieve-format/content") {
-		t.Fatalf("data.data.url = %q, want .../v1/videos/video-retrieve-format/content", got)
+	if got := gjson.GetBytes(payload, "data.url").String(); !strings.HasSuffix(got, "/v1/videos/video-retrieve-format/content") {
+		t.Fatalf("data.url = %q, want .../v1/videos/video-retrieve-format/content", got)
 	}
-	if got := gjson.GetBytes(payload, "data.data.source_url").String(); got != "https://vidgen.x.ai/video.mp4" {
-		t.Fatalf("data.data.source_url = %q, want https://vidgen.x.ai/video.mp4", got)
+	if got := gjson.GetBytes(payload, "data.source_url").String(); got != "https://vidgen.x.ai/video.mp4" {
+		t.Fatalf("data.source_url = %q, want https://vidgen.x.ai/video.mp4", got)
 	}
 }
