@@ -670,7 +670,11 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 			inner, _ = sjson.SetBytes(inner, "model", model)
 		}
 		if videoProxyURL != "" {
+			inner, _ = sjson.SetBytes(inner, "url", videoProxyURL)
 			inner, _ = sjson.SetBytes(inner, "video.url", videoProxyURL)
+		}
+		if sourceURL := strings.TrimSpace(gjson.GetBytes(respPayload, "video.url").String()); sourceURL != "" {
+			inner, _ = sjson.SetBytes(inner, "source_url", sourceURL)
 		}
 		out, _ = sjson.SetRawBytes(out, "data.data", inner)
 	} else if responseStatus == "FAILURE" {
