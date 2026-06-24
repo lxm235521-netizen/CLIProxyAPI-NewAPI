@@ -1100,6 +1100,22 @@ func TestBuildXAIVideosCreateResponseModerationRejected(t *testing.T) {
 	}
 }
 
+func TestNormalizeXAIVideosNativeJSONImageURL(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","prompt":"test","image_url":"data:image/jpeg;base64,abc123"}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "image.url").String(); got != "data:image/jpeg;base64,abc123" {
+		t.Fatalf("image.url = %q, want data:image/jpeg;base64,abc123", got)
+	}
+}
+
+func TestNormalizeXAIVideosNativeJSONImageURLNoOverwrite(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","image.url":"original","image_url":"override"}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "image.url").String(); got != "original" {
+		t.Fatalf("image.url = %q, want original (existing preserved)", got)
+	}
+}
+
 func TestBuildXAIVideosRetrieveResponseInProgress(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_123","status":"in_progress","progress":50}`)
 	rawRequest := []byte(`{"request_id":"vid_123"}`)

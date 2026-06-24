@@ -896,7 +896,16 @@ func (h *OpenAIAPIHandler) handleXAIVideosNativePost(c *gin.Context) {
 		return
 	}
 
+	rawJSON = normalizeXAIVideosNativeJSON(rawJSON)
 	h.collectXAIVideosNative(c, rawJSON, videoModel, true)
+}
+
+func normalizeXAIVideosNativeJSON(rawJSON []byte) []byte {
+	imageURL := strings.TrimSpace(gjson.GetBytes(rawJSON, "image_url").String())
+	if imageURL != "" && !gjson.GetBytes(rawJSON, "image.url").Exists() {
+		rawJSON, _ = sjson.SetBytes(rawJSON, "image.url", imageURL)
+	}
+	return rawJSON
 }
 
 func (h *OpenAIAPIHandler) XAIVideosRetrieve(c *gin.Context) {
