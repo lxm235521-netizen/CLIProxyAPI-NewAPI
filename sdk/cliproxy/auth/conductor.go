@@ -3718,9 +3718,17 @@ func isRequestScopedNotFoundMessage(message string) bool {
 		return false
 	}
 	lower := strings.ToLower(message)
-	return strings.Contains(lower, "item with id") &&
+	// Google API: item not persisted when store=false
+	if strings.Contains(lower, "item with id") &&
 		strings.Contains(lower, "not found") &&
-		strings.Contains(lower, "items are not persisted when `store` is set to false")
+		strings.Contains(lower, "items are not persisted when `store` is set to false") {
+		return true
+	}
+	// xAI / generic: structured JSON error with code "not-found" (resource-level 404)
+	if strings.Contains(lower, `"code":"not-found"`) || strings.Contains(lower, `"code": "not-found"`) {
+		return true
+	}
+	return false
 }
 
 func isRequestScopedNotFoundResultError(err *Error) bool {
