@@ -1205,6 +1205,19 @@ func TestBuildXAIVideosRetrieveResponseModerationRejected(t *testing.T) {
 	}
 }
 
+func TestBuildXAIVideosRetrieveResponseModerationRejectedNoStatus(t *testing.T) {
+	respPayload := []byte(`{"code":"Client specified an invalid argument","error":"Generated video rejected by content moderation.","usage":{"cost_in_usd_ticks":7060000000}}`)
+
+	out := buildXAIVideosRetrieveResponse(respPayload, nil, "")
+
+	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILURE" {
+		t.Fatalf("data.status = %q, want FAILURE", got)
+	}
+	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频内容审核不通过" {
+		t.Fatalf("data.reason = %q, want 视频内容审核不通过", got)
+	}
+}
+
 func TestXAIVideosRetrieveResponseFormat(t *testing.T) {
 	resetVideoAuthBindingsForTest(t)
 	executor := &videoAuthCaptureExecutor{requestID: "video-retrieve-format"}

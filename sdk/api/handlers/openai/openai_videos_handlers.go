@@ -670,7 +670,11 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 	case "failed", "error", "cancelled", "canceled", "expired":
 		responseStatus = "FAILURE"
 	default:
-		responseStatus = "IN_PROGRESS"
+		if gjson.GetBytes(respPayload, "error").Exists() {
+			responseStatus = "FAILURE"
+		} else {
+			responseStatus = "IN_PROGRESS"
+		}
 	}
 
 	out := []byte(`{}`)
