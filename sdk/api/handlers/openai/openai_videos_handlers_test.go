@@ -1116,6 +1116,41 @@ func TestNormalizeXAIVideosNativeJSONImageURLNoOverwrite(t *testing.T) {
 	}
 }
 
+func TestNormalizeXAIVideosNativeJSONSizeToAspectRatioResolution(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","prompt":"test","size":"720x1280"}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "aspect_ratio").String(); got != "9:16" {
+		t.Fatalf("aspect_ratio = %q, want 9:16", got)
+	}
+	if got := gjson.GetBytes(normalized, "resolution").String(); got != "720p" {
+		t.Fatalf("resolution = %q, want 720p", got)
+	}
+}
+
+func TestNormalizeXAIVideosNativeJSONSizePreservesExistingAspectRatio(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","size":"1280x720","aspect_ratio":"1:1"}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "aspect_ratio").String(); got != "1:1" {
+		t.Fatalf("aspect_ratio = %q, want 1:1 (existing preserved)", got)
+	}
+}
+
+func TestNormalizeXAIVideosNativeJSONSecondsToDuration(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","prompt":"test","seconds":"10"}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "duration").Int(); got != 10 {
+		t.Fatalf("duration = %d, want 10", got)
+	}
+}
+
+func TestNormalizeXAIVideosNativeJSONSecondsPreservesExistingDuration(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","seconds":"10","duration":5}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "duration").Int(); got != 5 {
+		t.Fatalf("duration = %d, want 5 (existing preserved)", got)
+	}
+}
+
 func TestBuildXAIVideosRetrieveResponseInProgress(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_123","status":"in_progress","progress":50}`)
 	rawRequest := []byte(`{"request_id":"vid_123"}`)

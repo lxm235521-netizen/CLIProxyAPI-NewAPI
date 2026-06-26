@@ -920,14 +920,37 @@ func (h *OpenAIAPIHandler) handleXAIVideosNativePost(c *gin.Context) {
 		return
 	}
 
+	canonicalModel := canonicalXAIVideosModel(videoModel)
+	rawJSON, _ = sjson.SetBytes(rawJSON, "model", canonicalModel)
 	rawJSON = normalizeXAIVideosNativeJSON(rawJSON)
-	h.collectXAIVideosNative(c, rawJSON, videoModel, true)
+	h.collectXAIVideosNative(c, rawJSON, canonicalModel, true)
 }
 
 func normalizeXAIVideosNativeJSON(rawJSON []byte) []byte {
+	// Convert image_url → image.url
 	imageURL := strings.TrimSpace(gjson.GetBytes(rawJSON, "image_url").String())
 	if imageURL != "" && !gjson.GetBytes(rawJSON, "image.url").Exists() {
 		rawJSON, _ = sjson.SetBytes(rawJSON, "image.url", imageURL)
+	}
+	// Convert size → aspect_ratio + resolution (sync with multipart builder)
+	size := strings.TrimSpace(gjson.GetBytes(rawJSON, "size").String())
+	if size != "" {
+		if _, ar, res, err := xaiVideosSizeOptions(size); err == nil {
+			if !gjson.GetBytes(rawJSON, "aspect_ratio").Exists() {
+				rawJSON, _ = sjson.SetBytes(rawJSON, "aspect_ratio", ar)
+			}
+			if !gjson.GetBytes(rawJSON, "resolution").Exists() {
+				rawJSON, _ = sjson.SetBytes(rawJSON, "resolution", res)
+			}
+		}
+	}
+	// Convert seconds → duration (sync with multipart builder)
+	seconds := strings.TrimSpace(gjson.GetBytes(rawJSON, "seconds").String())
+	if seconds != "" && !gjson.GetBytes(rawJSON, "duration").Exists() {
+		_, duration, err := normalizeXAIVideosSeconds(seconds)
+		if err == nil {
+			rawJSON, _ = sjson.SetRawBytes(rawJSON, "duration", []byte(strconv.FormatInt(duration, 10)))
+		}
 	}
 	return rawJSON
 }
