@@ -1114,6 +1114,9 @@ func TestNormalizeXAIVideosNativeJSONImageURLNoOverwrite(t *testing.T) {
 	if got := gjson.GetBytes(normalized, "image.url").String(); got != "original" {
 		t.Fatalf("image.url = %q, want original (existing preserved)", got)
 	}
+	if gjson.GetBytes(normalized, "image_url").Exists() {
+		t.Fatal("image_url must be deleted after conversion")
+	}
 }
 
 func TestNormalizeXAIVideosNativeJSONSizeToAspectRatioResolution(t *testing.T) {
@@ -1124,6 +1127,9 @@ func TestNormalizeXAIVideosNativeJSONSizeToAspectRatioResolution(t *testing.T) {
 	}
 	if got := gjson.GetBytes(normalized, "resolution").String(); got != "720p" {
 		t.Fatalf("resolution = %q, want 720p", got)
+	}
+	if gjson.GetBytes(normalized, "size").Exists() {
+		t.Fatal("size must be deleted after conversion")
 	}
 }
 
@@ -1138,6 +1144,9 @@ func TestNormalizeXAIVideosNativeJSONSizePreservesExistingAspectRatio(t *testing
 func TestNormalizeXAIVideosNativeJSONSecondsToDuration(t *testing.T) {
 	raw := []byte(`{"model":"grok-imagine-video","prompt":"test","seconds":"10"}`)
 	normalized := normalizeXAIVideosNativeJSON(raw)
+	if gjson.GetBytes(normalized, "seconds").Exists() {
+		t.Fatal("seconds must be deleted after conversion")
+	}
 	if got := gjson.GetBytes(normalized, "duration").Int(); got != 10 {
 		t.Fatalf("duration = %d, want 10", got)
 	}

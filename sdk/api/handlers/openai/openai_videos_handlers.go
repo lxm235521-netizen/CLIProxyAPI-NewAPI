@@ -961,6 +961,7 @@ func normalizeXAIVideosNativeJSON(rawJSON []byte) []byte {
 	imageURL := strings.TrimSpace(gjson.GetBytes(rawJSON, "image_url").String())
 	if imageURL != "" && !gjson.GetBytes(rawJSON, "image.url").Exists() {
 		rawJSON, _ = sjson.SetBytes(rawJSON, "image.url", imageURL)
+		rawJSON, _ = sjson.DeleteBytes(rawJSON, "image_url")
 	}
 	// Convert size → aspect_ratio + resolution (sync with multipart builder)
 	size := strings.TrimSpace(gjson.GetBytes(rawJSON, "size").String())
@@ -972,6 +973,7 @@ func normalizeXAIVideosNativeJSON(rawJSON []byte) []byte {
 			if !gjson.GetBytes(rawJSON, "resolution").Exists() {
 				rawJSON, _ = sjson.SetBytes(rawJSON, "resolution", res)
 			}
+			rawJSON, _ = sjson.DeleteBytes(rawJSON, "size")
 		}
 	}
 	// Convert seconds → duration (sync with multipart builder)
@@ -980,6 +982,7 @@ func normalizeXAIVideosNativeJSON(rawJSON []byte) []byte {
 		_, duration, err := normalizeXAIVideosSeconds(seconds)
 		if err == nil {
 			rawJSON, _ = sjson.SetRawBytes(rawJSON, "duration", []byte(strconv.FormatInt(duration, 10)))
+			rawJSON, _ = sjson.DeleteBytes(rawJSON, "seconds")
 		}
 	}
 	return rawJSON
