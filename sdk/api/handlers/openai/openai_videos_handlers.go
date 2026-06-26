@@ -58,6 +58,7 @@ type xaiVideoCreateMetadata struct {
 type videoAuthBinding struct {
 	authID    string
 	model     string
+	prompt    string
 	expiresAt time.Time
 }
 
@@ -72,7 +73,7 @@ func newVideoAuthBindingStore() *videoAuthBindingStore {
 	}
 }
 
-func (s *videoAuthBindingStore) set(videoID string, authID string, model string, ttl time.Duration) {
+func (s *videoAuthBindingStore) set(videoID string, authID string, model string, prompt string, ttl time.Duration) {
 	if s == nil {
 		return
 	}
@@ -87,9 +88,16 @@ func (s *videoAuthBindingStore) set(videoID string, authID string, model string,
 	now := time.Now()
 	s.mu.Lock()
 	s.cleanupExpiredLocked(now)
+	existingPrompt := prompt
+	if existingPrompt == "" {
+		if existing, ok := s.entries[videoID]; ok && now.Before(existing.expiresAt) {
+			existingPrompt = existing.prompt
+		}
+	}
 	s.entries[videoID] = videoAuthBinding{
 		authID:    authID,
 		model:     strings.TrimSpace(model),
+		prompt:    existingPrompt,
 		expiresAt: now.Add(ttl),
 	}
 	s.mu.Unlock()
@@ -124,6 +132,24 @@ func (s *videoAuthBindingStore) getWithModel(videoID string) (string, string, bo
 		return "", "", false
 	}
 	return entry.authID, entry.model, true
+}
+
+func (s *videoAuthBindingStore) getPrompt(videoID string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	videoID = strings.TrimSpace(videoID)
+	if videoID == "" {
+		return "", false
+	}
+	now := time.Now()
+	s.mu.RLock()
+	entry, ok := s.entries[videoID]
+	s.mu.RUnlock()
+	if !ok || now.After(entry.expiresAt) {
+		return "", false
+	}
+	return entry.prompt, true
 }
 
 func (s *videoAuthBindingStore) cleanupExpiredLocked(now time.Time) {
@@ -368,12 +394,12 @@ func videoIDFromPayload(payload []byte) string {
 	return videoID
 }
 
-func (h *OpenAIAPIHandler) bindVideoAuthIDFromPayload(payload []byte, authID string, model string) {
+func (h *OpenAIAPIHandler) bindVideoAuthIDFromPayload(payload []byte, authID string, model string, prompt string) {
 	videoID := videoIDFromPayload(payload)
 	if videoID == "" {
 		return
 	}
-	videoAuthBindings.set(videoID, authID, model, h.videoAuthBindingTTL())
+	videoAuthBindings.set(videoID, authID, model, prompt, h.videoAuthBindingTTL())
 }
 
 func (h *OpenAIAPIHandler) contextWithVideoAuthBinding(ctx context.Context, videoID string) context.Context {
@@ -660,7 +686,7 @@ func buildXAIVideosCreateResponse(respPayload []byte, rawRequest []byte) []byte 
 	return out
 }
 
-func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, videoProxyURL string) []byte {
+func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, videoProxyURL string, videoID string, prompt string) []byte {
 	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(respPayload, "status").String()))
 
 	var responseStatus string
@@ -680,6 +706,10 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 	out := []byte(`{}`)
 	out, _ = sjson.SetBytes(out, "code", "success")
 	out, _ = sjson.SetBytes(out, "data.status", responseStatus)
+	out, _ = sjson.SetBytes(out, "data.id", videoID)
+	if prompt != "" {
+		out, _ = sjson.SetBytes(out, "data.prompt", prompt)
+	}
 
 	if responseStatus == "SUCCESS" {
 		if videoProxyURL != "" {
@@ -1018,7 +1048,7 @@ func (h *OpenAIAPIHandler) VideosRetrieve(c *gin.Context) {
 		return
 	}
 
-	videoAuthBindings.set(videoID, selectedAuthID, videoModelFromBinding(videoID), h.videoAuthBindingTTL())
+	videoAuthBindings.set(videoID, selectedAuthID, videoModelFromBinding(videoID), "", h.videoAuthBindingTTL())
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 	_, _ = c.Writer.Write(out)
 	cliCancel(nil)
@@ -1109,7 +1139,7 @@ func (h *OpenAIAPIHandler) downloadXAIVideoContent(c *gin.Context, videoID strin
 		return
 	}
 
-	videoAuthBindings.set(videoID, selectedAuthID, videoModel, h.videoAuthBindingTTL())
+	videoAuthBindings.set(videoID, selectedAuthID, videoModel, "", h.videoAuthBindingTTL())
 	contentURL, err := xaiVideoContentURLFromPayload(resp)
 	if err != nil {
 		errMsg := &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: err}
@@ -1232,7 +1262,7 @@ func (h *OpenAIAPIHandler) collectXAIVideosNative(c *gin.Context, rawJSON []byte
 	}
 
 	if bindCreatedVideoAuth {
-		h.bindVideoAuthIDFromPayload(resp, selectedAuthID, model)
+		h.bindVideoAuthIDFromPayload(resp, selectedAuthID, model, strings.TrimSpace(gjson.GetBytes(rawJSON, "prompt").String()))
 		resp = buildXAIVideosCreateResponse(resp, rawJSON)
 	} else {
 		videoID := videoIDFromPayload(rawJSON)
@@ -1245,7 +1275,8 @@ func (h *OpenAIAPIHandler) collectXAIVideosNative(c *gin.Context, rawJSON []byte
 			scheme = "https"
 		}
 		videoProxyURL := fmt.Sprintf("%s://%s/v1/videos/%s/content", scheme, c.Request.Host, videoID)
-		resp = buildXAIVideosRetrieveResponse(resp, rawJSON, videoProxyURL)
+		prompt, _ := videoAuthBindings.getPrompt(videoID)
+		resp = buildXAIVideosRetrieveResponse(resp, rawJSON, videoProxyURL, videoID, prompt)
 	}
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 	_, _ = c.Writer.Write(resp)
@@ -1285,7 +1316,7 @@ func (h *OpenAIAPIHandler) collectXAIVideosCreate(c *gin.Context, xaiReq []byte,
 		return
 	}
 
-	h.bindVideoAuthIDFromPayload(out, selectedAuthID, meta.Model)
+	h.bindVideoAuthIDFromPayload(out, selectedAuthID, meta.Model, meta.Prompt)
 	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
 	_, _ = c.Writer.Write(out)
 	cliCancel(nil)

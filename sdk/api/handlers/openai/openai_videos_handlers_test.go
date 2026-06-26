@@ -1155,13 +1155,19 @@ func TestBuildXAIVideosRetrieveResponseInProgress(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_123","status":"in_progress","progress":50}`)
 	rawRequest := []byte(`{"request_id":"vid_123"}`)
 
-	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "http://127.0.0.1:8317/v1/videos/vid_456/content")
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "http://127.0.0.1:8317/v1/videos/vid_456/content", "vid_123", "test prompt")
 
 	if got := gjson.GetBytes(out, "code").String(); got != "success" {
 		t.Fatalf("code = %q, want success", got)
 	}
 	if got := gjson.GetBytes(out, "data.status").String(); got != "IN_PROGRESS" {
 		t.Fatalf("data.status = %q, want IN_PROGRESS", got)
+	}
+	if got := gjson.GetBytes(out, "data.id").String(); got != "vid_123" {
+		t.Fatalf("data.id = %q, want vid_123", got)
+	}
+	if got := gjson.GetBytes(out, "data.prompt").String(); got != "test prompt" {
+		t.Fatalf("data.prompt = %q, want test prompt", got)
 	}
 	if got := gjson.GetBytes(out, "data.progress").String(); got != "50%" {
 		t.Fatalf("data.progress = %q, want 50%%", got)
@@ -1175,13 +1181,19 @@ func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_456","model":"grok-imagine-video","status":"completed","progress":100,"video":{"url":"https://vidgen.x.ai/video.mp4"}}`)
 	rawRequest := []byte(`{"request_id":"vid_456"}`)
 
-	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "http://127.0.0.1:8317/v1/videos/vid_456/content")
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "http://127.0.0.1:8317/v1/videos/vid_456/content", "vid_456", "a video of something")
 
 	if got := gjson.GetBytes(out, "code").String(); got != "success" {
 		t.Fatalf("code = %q, want success", got)
 	}
 	if got := gjson.GetBytes(out, "data.status").String(); got != "SUCCESS" {
 		t.Fatalf("data.status = %q, want SUCCESS", got)
+	}
+	if got := gjson.GetBytes(out, "data.id").String(); got != "vid_456" {
+		t.Fatalf("data.id = %q, want vid_456", got)
+	}
+	if got := gjson.GetBytes(out, "data.prompt").String(); got != "a video of something" {
+		t.Fatalf("data.prompt = %q, want a video of something", got)
 	}
 	if gjson.GetBytes(out, "data.progress").Exists() {
 		t.Fatal("data.progress must not exist for SUCCESS")
@@ -1207,7 +1219,7 @@ func TestBuildXAIVideosRetrieveResponseFailed(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_789","status":"failed","progress":0}`)
 	rawRequest := []byte(`{"request_id":"vid_789"}`)
 
-	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "")
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "", "", "")
 
 	if got := gjson.GetBytes(out, "code").String(); got != "success" {
 		t.Fatalf("code = %q, want success", got)
@@ -1230,7 +1242,7 @@ func TestBuildXAIVideosRetrieveResponseModerationRejected(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_mod","status":"failed","error":{"message":"Content safety violation"}}`)
 	rawRequest := []byte(`{"request_id":"vid_mod"}`)
 
-	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "")
+	out := buildXAIVideosRetrieveResponse(respPayload, rawRequest, "", "", "")
 
 	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILURE" {
 		t.Fatalf("data.status = %q, want FAILURE", got)
@@ -1243,7 +1255,7 @@ func TestBuildXAIVideosRetrieveResponseModerationRejected(t *testing.T) {
 func TestBuildXAIVideosRetrieveResponseModerationRejectedNoStatus(t *testing.T) {
 	respPayload := []byte(`{"code":"Client specified an invalid argument","error":"Generated video rejected by content moderation.","usage":{"cost_in_usd_ticks":7060000000}}`)
 
-	out := buildXAIVideosRetrieveResponse(respPayload, nil, "")
+	out := buildXAIVideosRetrieveResponse(respPayload, nil, "", "", "")
 
 	if got := gjson.GetBytes(out, "data.status").String(); got != "FAILURE" {
 		t.Fatalf("data.status = %q, want FAILURE", got)
