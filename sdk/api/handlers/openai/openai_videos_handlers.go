@@ -1263,6 +1263,17 @@ func (h *OpenAIAPIHandler) collectXAIVideosNative(c *gin.Context, rawJSON []byte
 	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(cliCtx, xaiVideosHandlerType, model, rawJSON, "")
 	stopKeepAlive()
 	if errMsg != nil {
+		if !bindCreatedVideoAuth && errMsg.Error != nil {
+			body := []byte(errMsg.Error.Error())
+			if json.Valid(body) && gjson.GetBytes(body, "error").Exists() {
+				videoID := videoIDFromPayload(rawJSON)
+				prompt, _ := videoAuthBindings.getPrompt(videoID)
+				resp := buildXAIVideosRetrieveResponse(body, rawJSON, "", videoID, prompt)
+				_, _ = c.Writer.Write(resp)
+				cliCancel(nil)
+				return
+			}
+		}
 		h.WriteErrorResponse(c, errMsg)
 		if errMsg.Error != nil {
 			cliCancel(errMsg.Error)
