@@ -706,10 +706,6 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 	out := []byte(`{}`)
 	out, _ = sjson.SetBytes(out, "code", "success")
 	out, _ = sjson.SetBytes(out, "data.status", responseStatus)
-	out, _ = sjson.SetBytes(out, "data.id", videoID)
-	if prompt != "" {
-		out, _ = sjson.SetBytes(out, "data.prompt", prompt)
-	}
 
 	if responseStatus == "SUCCESS" {
 		if videoProxyURL != "" {
@@ -719,6 +715,10 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 			out, _ = sjson.SetBytes(out, "data.source_url", sourceURL)
 		}
 		inner := []byte(`{}`)
+		inner, _ = sjson.SetBytes(inner, "id", videoID)
+		if prompt != "" {
+			inner, _ = sjson.SetBytes(inner, "prompt", prompt)
+		}
 		inner, _ = sjson.SetBytes(inner, "status", "done")
 		if model := strings.TrimSpace(gjson.GetBytes(respPayload, "model").String()); model != "" {
 			inner, _ = sjson.SetBytes(inner, "model", model)
@@ -729,12 +729,20 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 		out, _ = sjson.SetRawBytes(out, "data.data", inner)
 	} else if responseStatus == "FAILURE" {
 		out, _ = sjson.SetBytes(out, "data.reason", videoFailureReason(respPayload))
+		out, _ = sjson.SetBytes(out, "data.data.id", videoID)
+		if prompt != "" {
+			out, _ = sjson.SetBytes(out, "data.data.prompt", prompt)
+		}
 	} else {
 		progressStr := "0%"
 		if progress := gjson.GetBytes(respPayload, "progress"); progress.Exists() {
 			progressStr = strconv.FormatInt(progress.Int(), 10) + "%"
 		}
 		out, _ = sjson.SetBytes(out, "data.progress", progressStr)
+		out, _ = sjson.SetBytes(out, "data.data.id", videoID)
+		if prompt != "" {
+			out, _ = sjson.SetBytes(out, "data.data.prompt", prompt)
+		}
 	}
 
 	return out

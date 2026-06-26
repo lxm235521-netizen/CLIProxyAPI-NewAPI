@@ -1172,17 +1172,14 @@ func TestBuildXAIVideosRetrieveResponseInProgress(t *testing.T) {
 	if got := gjson.GetBytes(out, "data.status").String(); got != "IN_PROGRESS" {
 		t.Fatalf("data.status = %q, want IN_PROGRESS", got)
 	}
-	if got := gjson.GetBytes(out, "data.id").String(); got != "vid_123" {
-		t.Fatalf("data.id = %q, want vid_123", got)
+	if got := gjson.GetBytes(out, "data.data.id").String(); got != "vid_123" {
+		t.Fatalf("data.data.id = %q, want vid_123", got)
 	}
-	if got := gjson.GetBytes(out, "data.prompt").String(); got != "test prompt" {
-		t.Fatalf("data.prompt = %q, want test prompt", got)
+	if got := gjson.GetBytes(out, "data.data.prompt").String(); got != "test prompt" {
+		t.Fatalf("data.data.prompt = %q, want test prompt", got)
 	}
 	if got := gjson.GetBytes(out, "data.progress").String(); got != "50%" {
 		t.Fatalf("data.progress = %q, want 50%%", got)
-	}
-	if gjson.GetBytes(out, "data.data").Exists() {
-		t.Fatal("data.data must not exist for IN_PROGRESS")
 	}
 }
 
@@ -1198,11 +1195,11 @@ func TestBuildXAIVideosRetrieveResponseSuccess(t *testing.T) {
 	if got := gjson.GetBytes(out, "data.status").String(); got != "SUCCESS" {
 		t.Fatalf("data.status = %q, want SUCCESS", got)
 	}
-	if got := gjson.GetBytes(out, "data.id").String(); got != "vid_456" {
-		t.Fatalf("data.id = %q, want vid_456", got)
+	if got := gjson.GetBytes(out, "data.data.id").String(); got != "vid_456" {
+		t.Fatalf("data.data.id = %q, want vid_456", got)
 	}
-	if got := gjson.GetBytes(out, "data.prompt").String(); got != "a video of something" {
-		t.Fatalf("data.prompt = %q, want a video of something", got)
+	if got := gjson.GetBytes(out, "data.data.prompt").String(); got != "a video of something" {
+		t.Fatalf("data.data.prompt = %q, want a video of something", got)
 	}
 	if gjson.GetBytes(out, "data.progress").Exists() {
 		t.Fatal("data.progress must not exist for SUCCESS")
