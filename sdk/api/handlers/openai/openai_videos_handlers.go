@@ -733,6 +733,9 @@ func buildXAIVideosRetrieveResponse(respPayload []byte, rawRequest []byte, video
 		if prompt != "" {
 			out, _ = sjson.SetBytes(out, "data.data.prompt", prompt)
 		}
+		if errText := videoErrorText(respPayload); errText != "" {
+			out, _ = sjson.SetBytes(out, "data.data.error", errText)
+		}
 	} else {
 		progressStr := "0%"
 		if progress := gjson.GetBytes(respPayload, "progress"); progress.Exists() {
@@ -762,6 +765,17 @@ func videoFailureReason(payload []byte) string {
 		}
 	}
 	return "视频生成失败"
+}
+// videoErrorText extracts the original error message from an upstream response payload.
+func videoErrorText(payload []byte) string {
+	errText := strings.TrimSpace(gjson.GetBytes(payload, "error.message").String())
+	if errText == "" {
+		errText = strings.TrimSpace(gjson.GetBytes(payload, "error").String())
+	}
+	if errText == "" {
+		errText = strings.TrimSpace(gjson.GetBytes(payload, "code").String())
+	}
+	return errText
 }
 
 func buildVideosFailedAPIResponse(model string, code string, message string) []byte {

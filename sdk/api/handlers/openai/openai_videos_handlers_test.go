@@ -1239,11 +1239,13 @@ func TestBuildXAIVideosRetrieveResponseFailed(t *testing.T) {
 	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频生成失败" {
 		t.Fatalf("data.reason = %q, want 视频生成失败", got)
 	}
-	if gjson.GetBytes(out, "data.data").Exists() {
-		t.Fatal("data.data must not exist for FAILURE")
+	if !gjson.GetBytes(out, "data.data").Exists() {
+		t.Fatal("data.data must exist for FAILURE")
+	}
+	if gjson.GetBytes(out, "data.data.error").Exists() {
+		t.Fatal("data.data.error must not exist when no error in payload")
 	}
 }
-
 func TestBuildXAIVideosRetrieveResponseModerationRejected(t *testing.T) {
 	respPayload := []byte(`{"request_id":"vid_mod","status":"failed","error":{"message":"Content safety violation"}}`)
 	rawRequest := []byte(`{"request_id":"vid_mod"}`)
@@ -1255,6 +1257,9 @@ func TestBuildXAIVideosRetrieveResponseModerationRejected(t *testing.T) {
 	}
 	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频内容审核不通过" {
 		t.Fatalf("data.reason = %q, want 视频内容审核不通过", got)
+	}
+	if got := gjson.GetBytes(out, "data.data.error").String(); got != "Content safety violation" {
+		t.Fatalf("data.data.error = %q, want Content safety violation", got)
 	}
 }
 
@@ -1268,6 +1273,9 @@ func TestBuildXAIVideosRetrieveResponseModerationRejectedNoStatus(t *testing.T) 
 	}
 	if got := gjson.GetBytes(out, "data.reason").String(); got != "视频内容审核不通过" {
 		t.Fatalf("data.reason = %q, want 视频内容审核不通过", got)
+	}
+	if got := gjson.GetBytes(out, "data.data.error").String(); got != "Generated video rejected by content moderation." {
+		t.Fatalf("data.data.error = %q", got)
 	}
 }
 
