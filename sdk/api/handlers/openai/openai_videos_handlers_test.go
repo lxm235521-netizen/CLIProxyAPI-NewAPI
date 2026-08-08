@@ -1133,6 +1133,20 @@ func TestNormalizeXAIVideosNativeJSONSizeToAspectRatioResolution(t *testing.T) {
 	}
 }
 
+func TestNormalizeXAIVideosNativeJSONAllowsExplicitAspectRatioResolutionWithoutSize(t *testing.T) {
+	raw := []byte(`{"model":"grok-imagine-video","prompt":"test","aspect_ratio":"16:9","resolution":"720p"}`)
+	normalized := normalizeXAIVideosNativeJSON(raw)
+	if got := gjson.GetBytes(normalized, "aspect_ratio").String(); got != "16:9" {
+		t.Fatalf("aspect_ratio = %q, want 16:9", got)
+	}
+	if got := gjson.GetBytes(normalized, "resolution").String(); got != "720p" {
+		t.Fatalf("resolution = %q, want 720p", got)
+	}
+	if gjson.GetBytes(normalized, "size").Exists() {
+		t.Fatal("size must not be added when omitted")
+	}
+}
+
 func TestNormalizeXAIVideosNativeJSONSizePreservesExistingAspectRatio(t *testing.T) {
 	raw := []byte(`{"model":"grok-imagine-video","size":"1280x720","aspect_ratio":"1:1"}`)
 	normalized := normalizeXAIVideosNativeJSON(raw)
